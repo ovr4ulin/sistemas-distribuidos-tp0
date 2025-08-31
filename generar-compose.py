@@ -11,6 +11,8 @@ SERVER = """
     container_name: server
     image: server:latest
     entrypoint: python3 /main.py
+    volumes:
+      - ./server/config.yaml:/config.yaml:ro
     environment:
       - PYTHONUNBUFFERED=1
       - LOGGING_LEVEL=DEBUG
@@ -23,6 +25,8 @@ CLIENT = """
     container_name: client{client_id}
     image: client:latest
     entrypoint: /client
+    volumes:
+      - ./client/config.yaml:/config.ini:ro
     environment:
       - CLI_ID={client_id}
       - CLI_LOG_LEVEL=DEBUG
