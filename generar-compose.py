@@ -41,15 +41,15 @@ networks:
         - subnet: 172.25.125.0/24
 """
 
+OUTPUT_FILE_PARAMETER_INDEX = 1
+CLIENT_INSTANCES_PARAMETER_INDEX = 2
 NUMBER_OF_PARAMETERS = 3
-CLIENT_INSTANCES_PARAMETER_INDEX = 1
-OUTPUT_FILE_PARAMETER_INDEX = 2
 
 
 def main():
     if len(sys.argv) != NUMBER_OF_PARAMETERS:
         print(f"Invalid number of arguments: {sys.argv}")
-        print("Usage: python3 script.py <number_of_clients> <output_file>")
+        print("Usage: python3 script.py <output_file> <number_of_clients>")
         return
 
     if not sys.argv[CLIENT_INSTANCES_PARAMETER_INDEX].isdigit():
