@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 mi-generador.py $1 $2
+python3 generar-compose.py $1 $2
