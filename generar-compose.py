@@ -75,7 +75,7 @@ def generate_docker_compose_file(client_instances: int, output_file: str):
         f.write(HEADER)
         print("Adding server configuration...")
         f.write(SERVER)
-        for i in range(client_instances):
+        for i in range(1, client_instances + 1):
             print(f"Adding client {i} configuration...")
             f.write(CLIENT.format(client_id=i))
         print("Adding networks configuration...")
