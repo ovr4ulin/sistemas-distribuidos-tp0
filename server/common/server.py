@@ -29,12 +29,20 @@ class Server:
             if client_sock:
                 self.__handle_client_connection(client_sock)
 
-        self._server_socket.close()
+        logging.info(f"action: run | result: finished")
 
-        logging.info(f"action: run | result: success")
+    def __sigterm_handler(self, signum, stack_frame):
+        if not self._active:
+            return
 
-    def __sigterm_handler(self, signal, stack_frame):
         self._active = False
+
+        try:
+            logging.info(f"action: close socket | result: in_progress")
+            self._server_socket.close()
+            logging.info(f"action: close socket | result: success")
+        except OSError as e:
+            logging.error(f"action: close socket | result: fail | error: {e}")
 
     def __handle_client_connection(self, client_sock):
         """
@@ -74,4 +82,8 @@ class Server:
             )
             return c
         except OSError as e:
-            logging.error(f"action: accept_connections | result: fail | error: {e}")
+            if self._active:
+                logging.error(f"action: accept_connections | result: fail | error: {e}")
+            else:
+                logging.info(f"action: accept_connections | result: canceled")
+            return None
