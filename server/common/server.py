@@ -26,7 +26,7 @@ class Server:
 
         while self._active:
             client_sock = self.__accept_new_connection()
-            if client_sock:
+            if client_sock is not None:
                 self.__handle_client_connection(client_sock)
 
         logging.info(f"action: run | result: finished")
