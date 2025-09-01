@@ -29,7 +29,7 @@ class Server:
             if client_sock is not None:
                 self.__handle_client_connection(client_sock)
 
-        logging.info(f"action: run | result: finished")
+        logging.info(f"action: run | result: success")
 
     def __sigterm_handler(self, signum, stack_frame):
         if not self._active:
