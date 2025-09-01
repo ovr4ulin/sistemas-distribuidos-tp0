@@ -62,7 +62,7 @@ func (c *Client) handleSigterm() {
 
 	go func(){
 		_ = <-channel
-		log.Infof("action: handleSigterm | result: received | client_id: %v", c.config.ID)
+		log.Infof("action: handleSigterm | result: in_progress | client_id: %v", c.config.ID)
 		c.active = false
 		signal.Stop(channel)
 		close(channel)
