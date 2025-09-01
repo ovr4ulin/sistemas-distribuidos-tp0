@@ -85,5 +85,5 @@ class Server:
             if self._active:
                 logging.error(f"action: accept_connections | result: fail | error: {e}")
             else:
-                logging.info(f"action: accept_connections | result: canceled")
+                logging.info(f"action: accept_connections | result: success")
             return None
