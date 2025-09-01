@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net"
 	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/op/go-logging"
 )
@@ -23,6 +26,7 @@ type ClientConfig struct {
 type Client struct {
 	config ClientConfig
 	conn   net.Conn
+	active bool
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -30,6 +34,7 @@ type Client struct {
 func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config: config,
+		active: true,
 	}
 	return client
 }
@@ -50,11 +55,29 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
+func (c *Client) handleSigterm() {
+	log.Infof("action: handleSigterm | result: in_progress | client_id: %v", c.config.ID)
+	channel := make(chan os.Signal, 1)
+	signal.Notify(channel, syscall.SIGTERM)
+
+	go func(){
+		_ = <-channel
+		log.Infof("action: handleSigterm | result: received | client_id: %v", c.config.ID)
+		c.active = false
+		signal.Stop(channel)
+		close(channel)
+		log.Infof("action: handleSigterm | result: success | client_id: %v", c.config.ID)
+	}()
+}
+
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
+
+	c.handleSigterm()
+
 	// There is an autoincremental msgID to identify every message sent
 	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+	for msgID := 1; msgID <= c.config.LoopAmount && c.active; msgID++ {
 		// Create the connection the server in every loop iteration. Send an
 		c.createClientSocket()
 
