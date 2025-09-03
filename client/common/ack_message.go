@@ -2,16 +2,11 @@ package common
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 )
 
 type AckMessage struct {
 	ProcessedCount string
-}
-
-func (a *AckMessage) Serialize() string {
-	return fmt.Sprintf("AckMessage^%s", a.ProcessedCount)
 }
 
 func MatchesAckMessage(s string) bool {
