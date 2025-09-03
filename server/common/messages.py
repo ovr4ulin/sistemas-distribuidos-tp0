@@ -7,7 +7,7 @@ import inspect
 
 
 class Message(ABC):
-    _DELIMITER: str = "|"
+    _DELIMITER: str = "^"
     _TAG: str = ""
 
     @classmethod

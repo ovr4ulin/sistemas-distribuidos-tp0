@@ -40,7 +40,7 @@ func NewBetMessageFromEnv() *BetMessage {
 
 func (b *BetMessage) Serialize() string {
 	return fmt.Sprintf(
-		"BetMessage|%s|%s|%s|%s|%s|%s",
+		"BetMessage^%s^%s^%s^%s^%s^%s",
 		b.Agency,
 		b.FirstName,
 		b.LastName,
@@ -59,7 +59,7 @@ func (b *BetMessage) Length() int {
 }
 
 func DeserializeBetMessage(s string) (*BetMessage, error) {
-	parts := strings.Split(s, "|")
+	parts := strings.Split(s, "^")
 	if len(parts) != 7 {
 		return nil, errors.New("invalid BetMessage format")
 	}
@@ -83,7 +83,7 @@ type AckMessage struct {
 }
 
 func (a *AckMessage) Serialize() string {
-	return fmt.Sprintf("AckMessage|%s", a.ProcessedCount)
+	return fmt.Sprintf("AckMessage^%s", a.ProcessedCount)
 }
 
 func MatchesAckMessage(s string) bool {
@@ -91,7 +91,7 @@ func MatchesAckMessage(s string) bool {
 }
 
 func DeserializeAckMessage(s string) (*AckMessage, error) {
-	parts := strings.Split(s, "|")
+	parts := strings.Split(s, "^")
 	if len(parts) != 2 {
 		return nil, errors.New("invalid AckMessage format")
 	}
@@ -104,6 +104,6 @@ func DeserializeAckMessage(s string) (*AckMessage, error) {
 }
 
 func matchTag(s, expected string) bool {
-	parts := strings.SplitN(s, "|", 2)
+	parts := strings.SplitN(s, "^", 2)
 	return len(parts) > 0 && parts[0] == expected
 }
