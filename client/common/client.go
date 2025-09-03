@@ -1,13 +1,13 @@
 package common
 
 import (
-	"bufio"
-	"fmt"
+	"encoding/binary"
+	"io"
 	"net"
-	"time"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/op/go-logging"
 )
@@ -56,11 +56,10 @@ func (c *Client) createClientSocket() error {
 }
 
 func (c *Client) handleSigterm() {
-	log.Infof("action: handleSigterm | result: in_progress | client_id: %v", c.config.ID)
 	channel := make(chan os.Signal, 1)
 	signal.Notify(channel, syscall.SIGTERM)
 
-	go func(){
+	go func() {
 		_ = <-channel
 		log.Infof("action: handleSigterm | result: in_progress | client_id: %v", c.config.ID)
 		c.active = false
@@ -81,28 +80,47 @@ func (c *Client) StartClientLoop() {
 		// Create the connection the server in every loop iteration. Send an
 		c.createClientSocket()
 
-		// TODO: Modify the send to avoid short-write
-		fmt.Fprintf(
-			c.conn,
-			"[CLIENT %v] Message N°%v\n",
-			c.config.ID,
-			msgID,
-		)
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
+		// Create message
+		betMessage := NewBetMessageFromEnv()
+		betMessageString := betMessage.Serialize()
 
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
-				err,
-			)
+		// Send message length
+		length := betMessage.Length()
+		var b [4]byte
+		binary.BigEndian.PutUint32(b[:], uint32(length))
+
+		// Send message
+		c.conn.Write([]byte(b[:]))
+		c.conn.Write([]byte(betMessageString))
+
+		// Read response length
+		var n uint32
+		if err := binary.Read(c.conn, binary.BigEndian, &n); err != nil {
+			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			return
 		}
 
+		// Read response
+		payload := make([]byte, n)
+		if _, err := io.ReadFull(c.conn, payload); err != nil {
+			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			return
+		}
+		response := string(payload)
+
+		// Close socket
+		c.conn.Close()
 		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 			c.config.ID,
-			msg,
+			response,
 		)
+
+		if MatchesAckMessage(response) {
+			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+				betMessage.Document,
+				betMessage.Number,
+			)
+		}
 
 		// Wait a time between sending one message and the next one
 		time.Sleep(c.config.LoopPeriod)

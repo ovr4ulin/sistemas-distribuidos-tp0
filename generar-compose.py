@@ -1,5 +1,8 @@
 import sys
+import random
 
+FIRST_NAMES = ["Santiago", "Tomas", "Micaela", "Sofia", "Agustin"]
+LAST_NAMES = ["Perez", "Baez", "Fernandez", "Sosa", "Lombardo"]
 
 HEADER = """
 name: tp0
@@ -28,6 +31,11 @@ CLIENT = """
       - ./client/config.yaml:/config.yaml
     environment:
       - CLI_ID={client_id}
+      - FIRST_NAME={first_name}
+      - LAST_NAME={last_name}
+      - DOCUMENT={document}
+      - BIRTH_DATE={birth_date}
+      - NUMBER={number}
     networks:
       - testing_net
     depends_on:
@@ -79,7 +87,16 @@ def generate_docker_compose_file(client_instances: int, output_file: str):
         f.write(SERVER)
         for i in range(1, client_instances + 1):
             print(f"Adding client {i} configuration...")
-            f.write(CLIENT.format(client_id=i))
+            f.write(
+                CLIENT.format(
+                    client_id=i,
+                    first_name=random.choice(FIRST_NAMES),
+                    last_name=random.choice(LAST_NAMES),
+                    document=random.randint(10000000, 47000000),
+                    birth_date=f"{random.randint(1930, 2025)}-{random.randint(1, 12):02d}-{random.randint(1, 30):02d}",
+                    number=random.randint(1000, 9999),
+                )
+            )
         print("Adding networks configuration...")
         f.write(NETWORKS)
 
