@@ -57,8 +57,6 @@ class BetService(Service):
             return AckMessage(success=False)
 
     def _handle_bet_batch_message(self, message_encoded: bytes) -> AckMessage:
-        logging.info(f"action: apuesta_recibida | result: in_progress")
-
         bet_batch_message: BetBatchMessage = BetBatchMessage.deserialize(
             message_encoded
         )
