@@ -1,6 +1,7 @@
 import socket
 import logging
 import signal
+import threading
 
 from common.services import BetService
 from common.session_handler import SessionHandler
@@ -32,7 +33,9 @@ class Server:
         while self._active:
             client_sock: socket.socket = self.__accept_new_connection()
             if client_sock is not None:
-                self.__handle_client_connection(client_sock)
+                threading.Thread(
+                    target=self.__handle_client_connection, args=(client_sock,)
+                ).start()
 
         logging.info(f"action: run | result: success")
 

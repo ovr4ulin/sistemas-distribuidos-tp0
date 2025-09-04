@@ -139,33 +139,6 @@ class EndOfBetsMessage(Message):
         raise NotImplementedError
 
 
-class WinnersRequestMessage(Message):
-    """
-    obj = WinnersRequestMessage("A1")
-    serialized = b"WinnersRequestMessage^A1"
-    """
-
-    def __init__(self, agency: str):
-        self.agency: str = agency
-
-    @classmethod
-    def matches(cls, message_encoded: bytes) -> bool:
-        string = message_encoded.decode("utf-8")
-        parts = string.split(cls._FIELD_DELIM)
-        return len(parts) == 2 and parts[0] == cls.get_tag()
-
-    @classmethod
-    def deserialize(cls, message_encoded: bytes) -> "WinnersRequestMessage":
-        s = message_encoded.decode("utf-8")
-        parts = s.split(cls._FIELD_DELIM)
-        if len(parts) != 2 or parts[0] != cls.get_tag():
-            raise ValueError(f"Invalid {cls.get_tag()} format: {s!r}")
-        return cls(parts[1])
-
-    def serialize(self) -> bytes:
-        raise NotImplementedError
-
-
 ########################################################
 # MESSAGES SENT
 ########################################################
@@ -197,24 +170,6 @@ class AckMessage(Message):
             ]
         )
         return string.encode("utf-8")
-
-
-class WinnersPendingMessage(Message):
-    """
-    obj = WinnersPendingMessage()
-    serialized = b"WinnersPendingMessage"
-    """
-
-    @classmethod
-    def matches(cls, message_encoded: bytes) -> bool:
-        raise NotImplementedError
-
-    @classmethod
-    def deserialize(cls, message_encoded: bytes) -> "WinnersPendingMessage":
-        raise NotImplementedError
-
-    def serialize(self) -> bytes:
-        return self.get_tag().encode("utf-8")
 
 
 class WinnersNotificationMessage(Message):

@@ -4,8 +4,6 @@ from common.messages import (
     Message,
     BetBatchMessage,
     EndOfBetsMessage,
-    WinnersRequestMessage,
-    WinnersPendingMessage,
     WinnersNotificationMessage,
 )
 from common.utils import Bet, store_bets, load_bets, has_won
@@ -13,6 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import os
 import logging
+from threading import RLock, Event
 
 ########################################################
 # ABSTRACT SERVICE
@@ -30,10 +29,47 @@ class Service(ABC):
 ########################################################
 
 
+class BetCoordinator:
+    def __init__(self):
+        self._winners_per_agency: dict[str, list[Bet]] = {}
+        self._agencies_proccesed: set = set()
+        self._total_agencies: int = int(os.environ.get("TOTAL_AGENCIES"))
+        self._winners_ready: Event = Event()
+        self._lock: RLock = RLock()
+
+    def store_bets(self, bets: list[Bet]) -> None:
+        with self._lock:
+            store_bets(bets)
+
+    def mark_end_of_bets(self, agency: str) -> None:
+        with self._lock:
+            self._agencies_proccesed.add(agency)
+
+            if len(self._agencies_proccesed) >= self._total_agencies:
+                self._calculate_winners()
+                self._winners_ready.set()
+
+    def _calculate_winners(self) -> None:
+        logging.info(f"action: sorteo | result: in_progress")
+        bets: list[Bet] = load_bets()
+
+        for bet in bets:
+            if has_won(bet):
+                self._winners_per_agency[str(bet.agency)] = (
+                    self._winners_per_agency.get(str(bet.agency), []) + [bet]
+                )
+
+        logging.info(f"action: sorteo | result: success")
+
+    def get_winners(self, agency: str) -> list[Bet]:
+        self._winners_ready.wait()
+
+        with self._lock:
+            return self._winners_per_agency.get(agency, [])
+
+
 class BetService(Service):
-    winners_per_agency: dict[str, int] = {}
-    agencies_proccesed: set = set()
-    total_agencies: int = int(os.environ.get("TOTAL_AGENCIES"))
+    coordinator = BetCoordinator()
 
     def handle_message(self, message_encoded: bytes) -> Optional[bytes]:
         response: Message | None = None
@@ -44,8 +80,6 @@ class BetService(Service):
             response = self._handle_bet_batch_message(message_encoded)
         elif EndOfBetsMessage.matches(message_encoded):
             response = self._handle_end_of_bets_message(message_encoded)
-        elif WinnersRequestMessage.matches(message_encoded):
-            response = self._handle_winners_request_message(message_encoded)
         else:
             raise ValueError("Message type not implemented")
 
@@ -66,7 +100,7 @@ class BetService(Service):
                 birthdate=bet_message.birthdate,
                 number=bet_message.number,
             )
-            store_bets([bet])
+            self.coordinator.store_bets([bet])
             logging.info(
                 f"action: apuesta_almacenada | result: success | dni: {bet_message.document} | numero: {bet_message.number}"
             )
@@ -93,7 +127,10 @@ class BetService(Service):
             bets.append(bet)
 
         try:
-            store_bets(bets)
+            logging.info(
+                f"action: apuesta_recibida | result: in_progress | cantidad: {len(bets)}"
+            )
+            self.coordinator.store_bets(bets)
             logging.info(
                 f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
             )
@@ -108,39 +145,11 @@ class BetService(Service):
         end_of_bets_message: EndOfBetsMessage = EndOfBetsMessage.deserialize(
             message_encoded
         )
-        self.agencies_proccesed.add(end_of_bets_message.agency)
+        self.coordinator.mark_end_of_bets(end_of_bets_message.agency)
 
-        if len(self.agencies_proccesed) < self.total_agencies:
-            return None
-
-        logging.info(f"action: sorteo | result: in_progress")
-
-        bets: list[Bet] = load_bets()
-
-        for bet in bets:
-            if has_won(bet):
-                self.winners_per_agency[str(bet.agency)] = self.winners_per_agency.get(
-                    str(bet.agency), []
-                ) + [bet]
-
-        logging.info(
-            f"action: sorteo | result: success | winners: {self.winners_per_agency}"
-        )
-
-    def _handle_winners_request_message(self, message_encoded: bytes) -> None:
-        winners_request_message: WinnersRequestMessage = (
-            WinnersRequestMessage.deserialize(message_encoded)
-        )
-
-        if len(self.agencies_proccesed) < self.total_agencies:
-            return WinnersPendingMessage()
+        winners: list[Bet] = self.coordinator.get_winners(end_of_bets_message.agency)
 
         return WinnersNotificationMessage(
-            count=len(self.winners_per_agency.get(winners_request_message.agency, [])),
-            documents=[
-                winner.document
-                for winner in self.winners_per_agency.get(
-                    winners_request_message.agency, []
-                )
-            ],
+            count=len(winners),
+            documents=[winner.document for winner in winners],
         )
