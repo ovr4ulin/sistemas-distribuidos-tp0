@@ -147,7 +147,6 @@ func (c *Client) ReadBetBatch(sc *bufio.Scanner, n int) (*BetBatchMessage, error
 
 	for i := 0; i < n && sc.Scan(); i++ {
 		cols := strings.Split(sc.Text(), ",")
-		log.Infof("action: lectura | result: in_progress | columns: %v %v", cols, i)
 		bets = append(bets, BetMessage{
 			Agency:    c.config.ID,
 			FirstName: cols[0],
