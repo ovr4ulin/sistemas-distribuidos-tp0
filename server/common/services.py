@@ -127,9 +127,6 @@ class BetService(Service):
             bets.append(bet)
 
         try:
-            logging.info(
-                f"action: apuesta_recibida | result: in_progress | cantidad: {len(bets)}"
-            )
             self.coordinator.store_bets(bets)
             logging.info(
                 f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
