@@ -19,13 +19,14 @@ services:
     entrypoint: /client
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-1.csv:/bets.csv
     environment:
       - CLI_ID=1
       - FIRST_NAME=Santiago
-      - LAST_NAME=Baez
-      - DOCUMENT=17789107
-      - BIRTH_DATE=1935-12-09
-      - NUMBER=5985
+      - LAST_NAME=Sosa
+      - DOCUMENT=31609402
+      - BIRTH_DATE=1973-07-03
+      - NUMBER=2557
     networks:
       - testing_net
     depends_on:
@@ -37,13 +38,14 @@ services:
     entrypoint: /client
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-2.csv:/bets.csv
     environment:
       - CLI_ID=2
-      - FIRST_NAME=Tomas
-      - LAST_NAME=Baez
-      - DOCUMENT=11449060
-      - BIRTH_DATE=1954-02-11
-      - NUMBER=8919
+      - FIRST_NAME=Agustin
+      - LAST_NAME=Fernandez
+      - DOCUMENT=46732641
+      - BIRTH_DATE=1975-07-08
+      - NUMBER=5608
     networks:
       - testing_net
     depends_on:
@@ -55,13 +57,14 @@ services:
     entrypoint: /client
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-3.csv:/bets.csv
     environment:
       - CLI_ID=3
-      - FIRST_NAME=Tomas
-      - LAST_NAME=Baez
-      - DOCUMENT=17145311
-      - BIRTH_DATE=2020-03-11
-      - NUMBER=3832
+      - FIRST_NAME=Sofia
+      - LAST_NAME=Lombardo
+      - DOCUMENT=40193484
+      - BIRTH_DATE=1966-04-29
+      - NUMBER=9307
     networks:
       - testing_net
     depends_on:
@@ -73,13 +76,14 @@ services:
     entrypoint: /client
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-4.csv:/bets.csv
     environment:
       - CLI_ID=4
-      - FIRST_NAME=Santiago
-      - LAST_NAME=Lombardo
-      - DOCUMENT=41796772
-      - BIRTH_DATE=1952-09-25
-      - NUMBER=7884
+      - FIRST_NAME=Micaela
+      - LAST_NAME=Sosa
+      - DOCUMENT=16348219
+      - BIRTH_DATE=1972-06-10
+      - NUMBER=7341
     networks:
       - testing_net
     depends_on:
@@ -91,13 +95,14 @@ services:
     entrypoint: /client
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-5.csv:/bets.csv
     environment:
       - CLI_ID=5
-      - FIRST_NAME=Micaela
+      - FIRST_NAME=Sofia
       - LAST_NAME=Baez
-      - DOCUMENT=44451499
-      - BIRTH_DATE=2000-03-14
-      - NUMBER=8256
+      - DOCUMENT=17191726
+      - BIRTH_DATE=1965-01-01
+      - NUMBER=2377
     networks:
       - testing_net
     depends_on:

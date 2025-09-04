@@ -8,10 +8,16 @@ class SessionHandler:
         self.service: Service = service
 
     def run(self) -> None:
-        message_encoded: bytes = self._read_message_from_socket()
-        response_encoded: bytes | None = self.service.handle_message(message_encoded)
-        if response_encoded is not None:
-            self._write_message_to_socket(response_encoded)
+        while True:
+            try:
+                message_encoded: bytes = self._read_message_from_socket()
+                response_encoded: bytes | None = self.service.handle_message(
+                    message_encoded
+                )
+                if response_encoded is not None:
+                    self._write_message_to_socket(response_encoded)
+            except EOFError:
+                break
 
     def _read_message_from_socket(self) -> bytes:
         message_length_encoded: bytes = self._read_exact(4)
@@ -35,7 +41,11 @@ class SessionHandler:
         while len(buf) < n:
             chunk = self.conn.recv(n - len(buf))
             if not chunk:
-                raise ConnectionError("Socket cerrado antes de recibir los datos")
+                if len(buf) == 0:
+                    raise EOFError("Socket cerrado")
+                raise ConnectionError(
+                    "Socket cerrado antes de terminar de recibir los datos"
+                )
             buf += chunk
 
         return buf

@@ -1,4 +1,4 @@
-from common.messages import BetMessage, AckMessage, Message
+from common.messages import BetMessage, AckMessage, Message, BetBatchMessage
 from common.utils import Bet, store_bets
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -26,28 +26,65 @@ class BetService(Service):
 
         if BetMessage.matches(message_encoded):
             response = self._handle_bet_message(message_encoded)
+        elif BetBatchMessage.matches(message_encoded):
+            response = self._handle_bet_batch_message(message_encoded)
         else:
             raise ValueError("Message type not implemented")
 
-        return response.to_bytes() if response else None
+        return response.serialize() if response else None
 
     def _handle_bet_message(self, message_encoded: bytes) -> AckMessage:
-        bet_message: BetMessage = BetMessage.from_bytes(message_encoded)
+        try:
+            bet_message: BetMessage = BetMessage.deserialize(message_encoded)
 
-        logging.info(
-            f"action: apuesta_almacenada | result: in_progress | dni: {bet_message.document} | numero: {bet_message.number}"
-        )
-        bet = Bet(
-            agency=bet_message.agency,
-            first_name=bet_message.first_name,
-            last_name=bet_message.last_name,
-            document=bet_message.document,
-            birthdate=bet_message.birthdate,
-            number=bet_message.number,
-        )
-        store_bets([bet])
-        logging.info(
-            f"action: apuesta_almacenada | result: success | dni: {bet_message.document} | numero: {bet_message.number}"
+            logging.info(
+                f"action: apuesta_almacenada | result: in_progress | dni: {bet_message.document} | numero: {bet_message.number}"
+            )
+            bet = Bet(
+                agency=bet_message.agency,
+                first_name=bet_message.first_name,
+                last_name=bet_message.last_name,
+                document=bet_message.document,
+                birthdate=bet_message.birthdate,
+                number=bet_message.number,
+            )
+            store_bets([bet])
+            logging.info(
+                f"action: apuesta_almacenada | result: success | dni: {bet_message.document} | numero: {bet_message.number}"
+            )
+            return AckMessage(success=True)
+        except Exception as e:
+            return AckMessage(success=False)
+
+    def _handle_bet_batch_message(self, message_encoded: bytes) -> AckMessage:
+        logging.info(f"action: apuesta_recibida | result: in_progress")
+
+        bet_batch_message: BetBatchMessage = BetBatchMessage.deserialize(
+            message_encoded
         )
 
-        return AckMessage(processed_count=1)
+        bets: list[Bet] = []
+
+        for bet_message in bet_batch_message.bet_messages:
+            bet = Bet(
+                agency=bet_message.agency,
+                first_name=bet_message.first_name,
+                last_name=bet_message.last_name,
+                document=bet_message.document,
+                birthdate=bet_message.birthdate,
+                number=bet_message.number,
+            )
+            bets.append(bet)
+
+        try:
+            store_bets([bet])
+            logging.info(
+                f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
+            )
+
+            return AckMessage(success=True)
+        except Exception as e:
+            logging.error(
+                f"action: apuesta_recibida | result: fail | cantidad: {len(bets)}"
+            )
+            return AckMessage(success=False)

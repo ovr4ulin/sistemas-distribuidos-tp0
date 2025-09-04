@@ -1,12 +1,15 @@
 package common
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,10 +24,11 @@ var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
-	ID            string
-	ServerAddress string
-	LoopAmount    int
-	LoopPeriod    time.Duration
+	ID             string
+	ServerAddress  string
+	LoopAmount     int
+	LoopPeriod     time.Duration
+	BatchMaxAmount int
 }
 
 // Client Entity that encapsulates how
@@ -138,28 +142,69 @@ func recvFramed(conn net.Conn) ([]byte, error) {
 // Messages
 // ===================================================
 
-func BuildBetMessageFromEnv() *BetMessage {
-	return &BetMessage{
-		Agency:    os.Getenv("CLI_ID"),
-		FirstName: os.Getenv("FIRST_NAME"),
-		LastName:  os.Getenv("LAST_NAME"),
-		Document:  os.Getenv("DOCUMENT"),
-		Birthdate: os.Getenv("BIRTH_DATE"),
-		Number:    os.Getenv("NUMBER"),
+func (c *Client) ReadBetBatch(sc *bufio.Scanner, n int) (*BetBatchMessage, error) {
+	bets := make([]BetMessage, 0, n)
+
+	for i := 0; i < n && sc.Scan(); i++ {
+		cols := strings.Split(sc.Text(), ",")
+		log.Infof("action: lectura | result: in_progress | columns: %v %v", cols, i)
+		bets = append(bets, BetMessage{
+			Agency:    c.config.ID,
+			FirstName: cols[0],
+			LastName:  cols[1],
+			Document:  cols[2],
+			Birthdate: cols[3],
+			Number:    cols[4],
+		})
 	}
+
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+
+	// Si no leíste nada → EOF
+	if len(bets) == 0 {
+		return nil, io.EOF
+	}
+
+	return &BetBatchMessage{Bets: bets}, nil
 }
 
-func (c *Client) sendBetAndGetResponse(bet *BetMessage) (string, error) {
-	betMessageSerialized := bet.Serialize()
-
-	if err := sendFramed(c.conn, []byte(betMessageSerialized)); err != nil {
-		return "", err
+func (c *Client) sendBetBatchAndGetResponse(sc *bufio.Scanner, n int) (*AckMessage, error) {
+	// Leer N líneas
+	BetBatchMessage, err := c.ReadBetBatch(sc, n)
+	if err != nil {
+		if err == io.EOF {
+			return nil, io.EOF
+		}
+		return nil, err
 	}
+
+	// Serializar el mensaje
+	BetBatchMessageSerialized := BetBatchMessage.Serialize()
+
+	// Enviar mensaje
+	if err := sendFramed(c.conn, []byte(BetBatchMessageSerialized)); err != nil {
+		return nil, err
+	}
+
+	// Recibir respuesta
 	resp, err := recvFramed(c.conn)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(resp), nil
+	response := string(resp)
+
+	// Checkear ACK
+	if !MatchesAckMessage(response) {
+		return nil, fmt.Errorf("unexpected response, expected AckMessage, got: %q", response)
+	}
+	ack, err := DeserializeAckMessage(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return ack, nil
 }
 
 // ===================================================
@@ -167,42 +212,41 @@ func (c *Client) sendBetAndGetResponse(bet *BetMessage) (string, error) {
 // ===================================================
 
 // StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
-
+func (c *Client) StartClientLoop() error {
 	c.handleSigterm()
 
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount && c.active; msgID++ {
-		// Create the connection the server in every loop iteration. Send an
-		c.createClientSocket()
-
-		// Create message
-		betMessage := BuildBetMessageFromEnv()
-
-		response, err := c.sendBetAndGetResponse(betMessage)
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID, err)
-			return
-		}
-
-		if MatchesAckMessage(response) {
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				betMessage.Document, betMessage.Number)
-		}
-
-		// Close socket
-		c.conn.Close()
-
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			response,
-		)
-
-		// Wait a time between sending one message and the next one
-		time.Sleep(c.config.LoopPeriod)
-
+	// Abrir archivo CSV
+	csvFilename := "/bets.csv"
+	csvFile, err := os.Open(csvFilename)
+	if err != nil {
+		return err
 	}
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+	defer csvFile.Close()
+
+	sc := bufio.NewScanner(csvFile)
+
+	// Abrir conexion
+	if err := c.createClientSocket(); err != nil {
+		return err
+	}
+	defer c.conn.Close()
+
+	for c.active {
+
+		ack, err := c.sendBetBatchAndGetResponse(sc, c.config.BatchMaxAmount)
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil || !ack.Success {
+			log.Errorf("action: apuesta_enviada | result: fail")
+			return err
+		}
+
+		time.Sleep(c.config.LoopPeriod)
+	}
+
+	log.Infof("action: apuesta_enviada | result: success")
+	return nil
 }

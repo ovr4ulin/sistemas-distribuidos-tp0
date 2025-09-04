@@ -29,6 +29,7 @@ CLIENT = """
     entrypoint: /client
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-{client_id}.csv:/bets.csv
     environment:
       - CLI_ID={client_id}
       - FIRST_NAME={first_name}
