@@ -178,3 +178,522 @@ Se espera que se redacte una sección del README en donde se indique cómo ejecu
 Se proveen [pruebas automáticas](https://github.com/7574-sistemas-distribuidos/tp0-tests) de caja negra. Se exige que la resolución de los ejercicios pase tales pruebas, o en su defecto que las discrepancias sean justificadas y discutidas con los docentes antes del día de la entrega. El incumplimiento de las pruebas es condición de desaprobación, pero su cumplimiento no es suficiente para la aprobación. Respetar las entradas de log planteadas en los ejercicios, pues son las que se chequean en cada uno de los tests.
 
 La corrección personal tendrá en cuenta la calidad del código entregado y casos de error posibles, se manifiesten o no durante la ejecución del trabajo práctico. Se pide a los alumnos leer atentamente y **tener en cuenta** los criterios de corrección informados  [en el campus](https://campusgrado.fi.uba.ar/mod/page/view.php?id=73393).
+
+# Desarrollo y justificación de ejercicios
+
+## Ejercicio 1
+
+### Cambios realizados
+
+[Ver cambios del Ejercicio 1](https://github.com/7574-sistemas-distribuidos/tp0-base/compare/master...ovr4ulin:sistemas-distribuidos-tp0:ej1)
+
+### Desarrollo
+
+Se creó el script `generar-compose.sh` como wrapper del script `generar-compose.py`.
+
+El script `generar-compose.py` realiza los siguientes procedimientos:
+
+1. **Valida la cantidad de argumentos**  
+   Debe recibir exactamente 3 argumentos: el nombre del script, la ruta del archivo de salida y la cantidad de clientes. Si no coincide, imprime un mensaje de error y finaliza la ejecución.
+
+```python
+if len(sys.argv) != NUMBER_OF_PARAMETERS:
+    print(f"Invalid number of arguments: {sys.argv}")
+    print("Usage: python3 script.py <output_file> <number_of_clients>")
+    return
+```
+
+1. **Valida que la cantidad de clientes sea un numero**  
+   Si el parámetro no es un número, imprime un error y detiene la ejecución.
+
+```python
+if not sys.argv[CLIENT_INSTANCES_PARAMETER_INDEX].isdigit():
+    print(
+        f"Invalid number of clients: {sys.argv[CLIENT_INSTANCES_PARAMETER_INDEX]}"
+    )
+    return
+```
+
+3. **Genera el archivo de Docker Compose**  
+   Escribe el archivo en la ruta indicada, combinando bloques de texto estáticos y secciones que dependen del número de clientes.
+
+```python
+HEADER = """
+name: tp0
+services:
+"""
+
+SERVER = """
+  server:
+    container_name: server
+    image: server:latest
+    entrypoint: python3 /main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOGGING_LEVEL=DEBUG
+    networks:
+      - testing_net
+"""
+
+CLIENT = """
+  client{client_id}:
+    container_name: client{client_id}
+    image: client:latest
+    entrypoint: /client
+    environment:
+      - CLI_ID={client_id}
+      - CLI_LOG_LEVEL=DEBUG
+    networks:
+      - testing_net
+    depends_on:
+      - server
+"""
+
+NETWORKS = """
+networks:
+  testing_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24
+"""
+
+
+def generate_docker_compose_file(client_instances: int, output_file: str):
+    with open(output_file, "w") as f:
+        print("Writing header...")
+        f.write(HEADER)
+        print("Adding server configuration...")
+        f.write(SERVER)
+        for i in range(1, client_instances + 1):
+            print(f"Adding client {i} configuration...")
+            f.write(CLIENT.format(client_id=i))
+        print("Adding networks configuration...")
+        f.write(NETWORKS)
+```
+
+### Ejecución del ejercicio
+
+Para crear un archivo de Docker Compose desde la raíz del repositorio, ejecutá:
+
+```
+./generar-compose.sh <output_file> <client_instances>
+```
+
+## Ejercicio 2
+
+### Cambios realizados
+[Ver cambios del Ejercicio 2](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej1...ovr4ulin:sistemas-distribuidos-tp0:ej2)
+
+### Desarrollo
+Se modificó `generar-compose.py` para que el servicio `server` monte `./server/config.ini` dentro del contenedor en `/config.ini`:
+
+```python
+SERVER = """
+  server:
+    container_name: server
+    image: server:latest
+    entrypoint: python3 /main.py
+    volumes:
+      - ./server/config.ini:/config.ini
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOGGING_LEVEL=DEBUG
+    networks:
+      - testing_net
+"""
+```
+
+En el mismo script también se actualizó la plantilla de los `clientN` para montar `./client/config.yaml` en `/config.yaml`:
+
+```python
+CLIENT = """
+  client{client_id}:
+    container_name: client{client_id}
+    image: client:latest
+    entrypoint: /client
+    volumes:
+      - ./client/config.yaml:/config.yaml
+    environment:
+      - CLI_ID={client_id}
+      - CLI_LOG_LEVEL=DEBUG
+    networks:
+      - testing_net
+    depends_on:
+      - server
+"""
+```
+
+### Ejecución
+Desde la raíz del repositorio:
+
+```bash
+./generar-compose.sh <output_file> <client_instances>
+```
+
+## Ejercicio 3
+
+### Cambios realizados
+
+  [Ver cambios del Ejercicio 3](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej2...ovr4ulin:sistemas-distribuidos-tp0:ej3)
+
+### Desarrollo
+Se creó el script `validar-echo-server.sh`, que lanza un contenedor `alpine:latest` y usa `netcat (nc)` para enviar un texto al servidor y recibir la respuesta. Luego compara la salida con el texto original y reporta el resultado.
+
+```bash
+#!/bin/bash
+
+timeout=10
+text="Hello world!"
+server_host="server"
+server_port=12345
+network_name="tp0_testing_net"
+
+output=$(docker run --rm --network "$network_name" alpine sh -c "echo $text | nc -w $timeout $server_host $server_port")
+
+if [ "$output" = "$text" ]; then
+    echo "action: test_echo_server | result: success"
+else
+    echo "action: test_echo_server | result: fail"
+fi
+```
+
+### Ejecución del ejercicio
+Desde la raíz del repositorio:
+
+```bash
+./generar-compose.sh <output_file> <client_instances>
+make docker-compose-up
+./validar-echo-server.sh
+```
+
+## Ejercicio 4
+
+### Cambios realizados
+[Ver cambios del Ejercicio 4](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej3...ovr4ulin:sistemas-distribuidos-tp0:ej4)
+
+### Desarrollo
+En el cliente de Go se agregó un campo `active` al `struct Client` para indicar si el cliente está activo. Este campo se inicializa en `true` y, en el *handler* de la señal `SIGTERM`, se pone en `false` para detener el bucle principal de forma limpia.
+
+```go
+type Client struct {
+	config ClientConfig
+	conn   net.Conn
+	active bool
+}
+```
+
+El *handler* de `SIGTERM` escucha la señal, marca el cliente como inactivo y libera los recursos del canal:
+
+```go
+func (c *Client) handleSigterm() {
+	log.Infof("action: handleSigterm | result: in_progress | client_id: %v", c.config.ID)
+	channel := make(chan os.Signal, 1)
+	signal.Notify(channel, syscall.SIGTERM)
+
+	go func(){
+		_ = <-channel
+		log.Infof("action: handleSigterm | result: in_progress | client_id: %v", c.config.ID)
+		c.active = false
+		signal.Stop(channel)
+		close(channel)
+		log.Infof("action: handleSigterm | result: success | client_id: %v", c.config.ID)
+	}()
+}
+```
+
+Dado que en el bucle principal se comprueba `Client.active`, cuando pasa a `false` el bucle termina y la ejecución finaliza limpiamente:
+
+```go
+func (c *Client) StartClientLoop() {
+
+	c.handleSigterm()
+
+	for msgID := 1; msgID <= c.config.LoopAmount && c.active; msgID++ {
+        ...
+    }
+```
+
+### Ejecución del ejercicio
+```bash
+./generar-compose.sh <output_file> <client_instances>
+make docker-compose-up
+make docker-compose-down && make docker-compose-logs
+```
+
+## Ejercicio 5
+
+### Cambios realizados
+[Ver cambios del Ejercicio 5](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej4...ovr4ulin:sistemas-distribuidos-tp0:ej5)
+
+### Desarrollo
+
+#### Tipos de mensaje
+Se implementó un protocolo de mensajería para comunicar los clientes con el servidor. Los mensajes tienen el siguiente formato:
+
+```[LEN_BYTES][MESSAGE_TYPE][DELIMITER][VALUE_FIELD_1][DELIMITER][VALUE_FIELD_2][DELIMITER]...```
+
+Se implementaron los siguientes mensajes:
+
+##### BetMessage
+
+```python
+class BetMessage(Message):
+    def __init__(
+        self,
+        agency: str,
+        first_name: str,
+        last_name: str,
+        document: str,
+        birthdate: str,
+        number: str,
+    ):
+        super().__init__()
+        self.agency: str = agency
+        self.first_name: str = first_name
+        self.last_name: str = last_name
+        self.document: str = document
+        self.birthdate: str = birthdate
+        self.number: str = number
+```
+
+Este mensaje es construido, serializado y enviado por el cliente hacia el servidor. Una vez serializado tiene el siguiente formato:
+
+```[LEN_BYTES]BetMessage[DELIMITER][AGENCY][DELIMITER][FIRST_NAME][DELIMITER][LAST_NAME][DELIMITER][DOCUMENT][DELIMITER][BIRTHDATE][DELIMITER][NUMBER]```
+
+Al recibirlo, el servidor lo deserializa y llama a la función provista por la cátedra `store_bets()` con el objeto `Bet` construido a partir del `BetMessage`.
+
+##### AckMessage
+
+```python
+class AckMessage(Message):
+    def __init__(self, processed_count: int):
+        super().__init__()
+        self.processed_count: str = str(processed_count)
+```
+
+Este mensaje es construido, serializado y enviado por el servidor hacia el cliente para confirmar el correcto procesamiento de un `BetMessage`. El campo numérico sirve de base para el Ejercicio 6.
+
+#### Flujo de mensajes
+El flujo básico del protocolo es el siguiente:
+
+```
+CLIENT ----[BetMessage]---> SERVER
+CLIENT <---[AckMessage]---- SERVER
+```
+
+### Ejecución del ejercicio
+```bash
+./generar-compose.sh <output_file> <client_instances>
+make docker-compose-up && make docker-compose-logs
+```
+
+## Ejercicio 6
+
+### Cambios realizados
+[Ver cambios del Ejercicio 6](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej5...ovr4ulin:sistemas-distribuidos-tp0:ej6)
+
+### Desarrollo
+
+#### Tipos de mensaje
+Se modificaron los mensajes existentes y se agregaron otros, quedando los siguientes:
+
+##### BetMessage
+```python
+class BetMessage(Message):
+    def __init__(
+        self,
+        agency: str,
+        first_name: str,
+        last_name: str,
+        document: str,
+        birthdate: str,
+        number: str,
+    ):
+        self.agency: str = agency
+        self.first_name: str = first_name
+        self.last_name: str = last_name
+        self.document: str = document
+        self.birthdate: str = birthdate
+        self.number: str = number
+```
+
+Este mensaje quedó idéntico; no fue modificado. Cuando no se envía de forma individual, pasa a estar contenido dentro de `BetBatchMessage`.
+
+##### BetBatchMessage
+```python
+class BetBatchMessage(Message):
+    def __init__(self, bet_messages: list[BetMessage]):
+        self.bet_messages: list[BetMessage] = bet_messages
+```
+Este mensaje es construido, serializado y enviado por el cliente hacia el servidor. Una vez serializado tiene el siguiente formato:
+
+```[LEN_BYTES]BetBatchMessage[RECORD_DELIMITER][BetMessage][RECORD_DELIMITER]...[RECORD_DELIMITER][BetMessage]```
+
+Dado que la serialización de `BetMessage` ya usa `[DELIMITER]`, se definió un nuevo delimitador `[RECORD_DELIMITER]` para no confundir el final de un campo del `BetBatchMessage` con el final de un campo de un `BetMessage`.
+
+Al recibirlo, el servidor lo deserializa, obtiene los distintos `BetMessage` y llama a la función provista por la cátedra `store_bets()` con los objetos `Bet` construidos a partir de esos `BetMessage`.
+
+##### AckMessage
+```python
+class AckMessage(Message):
+    def __init__(self, success: bool):
+        super().__init__()
+        self.success: bool = success
+```
+
+Se decidió que `AckMessage` incluya un booleano interno que indique si el batch recibido fue procesado satisfactoriamente.
+
+#### Flujo de mensajes
+El flujo básico del protocolo es el siguiente:
+
+```
+CLIENT ----[BetBatchMessage]---> SERVER
+CLIENT <------[AckMessage]------ SERVER
+CLIENT ----[BetBatchMessage]---> SERVER
+CLIENT <------[AckMessage]------ SERVER
+CLIENT ----[BetBatchMessage]---> SERVER
+CLIENT <------[AckMessage]------ SERVER
+```
+
+### Ejecución del ejercicio
+```bash
+./generar-compose.sh <output_file> <client_instances>
+make docker-compose-up && make docker-compose-logs
+```
+
+
+## Ejercicio 7
+
+### Cambios realizados
+[Ver cambios del Ejercicio 7](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej6...ovr4ulin:sistemas-distribuidos-tp0:ej7)
+
+### Desarrollo
+
+#### Tipos de mensaje
+Se agregaron mensajes para cubrir la lógica en la que las agencias envían apuestas, notifican que terminaron y luego consultan por los ganadores cuando todas hayan finalizado.
+
+##### EndOfBetsMessage
+```python
+class EndOfBetsMessage(Message):
+    def __init__(self, agency: str):
+        self.agency: str = agency
+```
+Este mensaje lo envía el cliente al servidor una vez que termina de enviar todos los `BetBatchMessages`. El servidor lleva un conteo de las agencias que ya informaron el final de su procesamiento con este mensaje; cuando la **última** agencia finaliza, el servidor calcula los ganadores utilizando la función provista por la cátedra.
+
+##### WinnersRequestMessage
+```python
+class WinnersRequestMessage(Message):
+    def __init__(self, agency: str):
+        self.agency: str = agency
+```
+Este mensaje lo envían los clientes luego del `EndOfBetsMessage` para conocer a sus ganadores. El servidor puede responder con un `WinnersPendingMessage` si todavía no se recibieron todos los `EndOfBetsMessage` y, por lo tanto, los ganadores aún no fueron calculados.
+
+##### WinnersPendingMessage
+```python
+class WinnersPendingMessage(Message):
+    pass
+```
+Mensaje de respuesta del servidor cuando recibe un `WinnersRequestMessage` pero aún faltan agencias por finalizar.
+
+##### WinnersNotificationMessage
+```python
+class WinnersNotificationMessage(Message):
+    def __init__(self, count: int, documents: list[int]):
+        self.count: int = int(count)
+        self.documents: list[int] = [int(d) for d in documents]
+```
+Respuesta del servidor cuando ya logró calcular a los ganadores. Contiene la cantidad y los documentos de los ganadores correspondientes a la agencia que realizó el `WinnersRequestMessage`.
+
+#### Flujo de mensajes
+El flujo básico del protocolo es el siguiente:
+
+```
+CLIENT ----------[BetBatchMessage]---------> SERVER
+CLIENT <------------[AckMessage]------------ SERVER
+CLIENT ----------[BetBatchMessage]---------> SERVER
+CLIENT <------------[AckMessage]------------ SERVER
+CLIENT ----------[EndOfBetsMessage]--------> SERVER
+---- close connection
+CLIENT -------[WinnersRequestMessage]------> SERVER
+CLIENT <------[WinnersPendingMessage]------- SERVER
+---- close connection
+CLIENT -------[WinnersRequestMessage]------> SERVER
+CLIENT <------[WinnersPendingMessage]------- SERVER
+---- close connection
+CLIENT -------[WinnersRequestMessage]------> SERVER
+CLIENT <----[WinnersNotificationMessage]---- SERVER
+```
+
+La conexión se cierra en cada consulta de ganadores porque el servidor **no es concurrente**; de esa forma puede atender al resto de los clientes que continúan procesando sus apuestas.
+
+### Ejecución del ejercicio
+```bash
+./generar-compose.sh <output_file> <client_instances>
+make docker-compose-up && make docker-compose-logs
+```
+
+## Ejercicio 8
+
+### Cambios realizados
+[Ver cambios del Ejercicio 8](https://github.com/ovr4ulin/sistemas-distribuidos-tp0/compare/ej7...ovr4ulin:sistemas-distribuidos-tp0:ej8)
+
+### Desarrollo
+Se agregó una estructura con herramientas de sincronización concurrente para acceder de forma segura a las estructuras que almacenan las apuestas y así poder atender a más de un cliente en paralelo.  
+Dado que hay múltiples operaciones de I/O (lectura/escritura de CSV y sockets), el GIL no debería ser un cuello de botella al ejecutar un *thread* por cliente.
+
+```python
+class BetCoordinator:
+    def __init__(self):
+        self._winners_per_agency: dict[str, list[Bet]] = {}
+        self._agencies_proccesed: set = set()
+        self._total_agencies: int = int(os.environ.get("TOTAL_AGENCIES"))
+        self._winners_ready: Event = Event()
+        self._lock: RLock = RLock()
+
+    def store_bets(self, bets: list[Bet]) -> None:
+        with self._lock:
+            store_bets(bets)
+
+    def mark_end_of_bets(self, agency: str) -> None:
+        with self._lock:
+            self._agencies_proccesed.add(agency)
+
+            if len(self._agencies_proccesed) >= self._total_agencies:
+                self._calculate_winners()
+                self._winners_ready.set()
+
+    def _calculate_winners(self) -> None:
+        logging.info(f"action: sorteo | result: in_progress")
+        bets: list[Bet] = load_bets()
+
+        for bet in bets:
+            if has_won(bet):
+                self._winners_per_agency[str(bet.agency)] = (
+                    self._winners_per_agency.get(str(bet.agency), []) + [bet]
+                )
+
+        logging.info(f"action: sorteo | result: success")
+
+    def get_winners(self, agency: str) -> list[Bet]:
+        self._winners_ready.wait()
+
+        with self._lock:
+            return self._winners_per_agency.get(agency, [])
+```
+
+#### Flujo de mensajes
+```
+CLIENT ----------[BetBatchMessage]---------> SERVER
+CLIENT <------------[AckMessage]------------ SERVER
+CLIENT ----------[BetBatchMessage]---------> SERVER
+CLIENT <------------[AckMessage]------------ SERVER
+CLIENT ----------[EndOfBetsMessage]--------> SERVER
+CLIENT <----[WinnersNotificationMessage]---- SERVER
+```
+
+### Ejecución del ejercicio
+```bash
+./generar-compose.sh <output_file> <client_instances>
+make docker-compose-up && make docker-compose-logs
+```
