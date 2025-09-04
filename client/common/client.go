@@ -215,31 +215,29 @@ func (c *Client) StartClientLoop() error {
 	c.handleSigterm()
 
 	// Abrir archivo CSV
-	csvFilename := "/bets.csv"
-	csvFile, err := os.Open(csvFilename)
+	csvFile, err := os.Open("/bets.csv")
 	if err != nil {
 		return err
 	}
 	defer csvFile.Close()
-
 	sc := bufio.NewScanner(csvFile)
 
 	// Abrir conexion
 	if err := c.createClientSocket(); err != nil {
 		return err
 	}
-	defer c.conn.Close()
 
 	for c.active {
 
 		ack, err := c.sendBetBatchAndGetResponse(sc, c.config.BatchMaxAmount)
 
-		if err == io.EOF {
+		if err == io.EOF { // Se termino de enviar todo el archivo
 			break
 		}
 
 		if err != nil || !ack.Success {
 			log.Errorf("action: apuesta_enviada | result: fail")
+			_ = c.conn.Close()
 			return err
 		}
 
@@ -247,5 +245,59 @@ func (c *Client) StartClientLoop() error {
 	}
 
 	log.Infof("action: apuesta_enviada | result: success")
+
+	endOfBetsMessage := EndOfBetsMessage{Agency: c.config.ID}
+	endOfBetsMessageSerialized := endOfBetsMessage.Serialize()
+
+	if err := sendFramed(c.conn, []byte(endOfBetsMessageSerialized)); err != nil {
+		_ = c.conn.Close()
+		return err
+	}
+
+	_ = c.conn.Close()
+
+	const pollDelay = 200 * time.Millisecond
+
+	for c.active {
+		if err := c.createClientSocket(); err != nil {
+			return err
+		}
+
+		winnersRequestMessage := WinnersRequestMessage{Agency: c.config.ID}
+		winnersRequestMessageSerialized := winnersRequestMessage.Serialize()
+		if err := sendFramed(c.conn, []byte(winnersRequestMessageSerialized)); err != nil {
+			_ = c.conn.Close()
+			return err
+		}
+
+		respBytes, err := recvFramed(c.conn)
+		if err != nil {
+			_ = c.conn.Close()
+			return err
+		}
+		resp := string(respBytes)
+
+		if MatchesWinnersPendingMessage(resp) {
+			_ = c.conn.Close()
+			time.Sleep(pollDelay)
+			continue
+		}
+
+		if MatchesWinnersNotificationMessage(resp) {
+			notif, err := DeserializeWinnersNotificationMessage(resp)
+			_ = c.conn.Close()
+			if err != nil {
+				return err
+			}
+			log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d",
+				notif.Count)
+			break
+		}
+
+		_ = c.conn.Close()
+		return fmt.Errorf("unexpected response to WinnersRequest: %q", resp)
+	}
+
+	log.Infof("action: proceso_finalizado | result: success | client_id: %v", c.config.ID)
 	return nil
 }

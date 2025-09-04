@@ -1,7 +1,17 @@
-from common.messages import BetMessage, AckMessage, Message, BetBatchMessage
-from common.utils import Bet, store_bets
+from common.messages import (
+    BetMessage,
+    AckMessage,
+    Message,
+    BetBatchMessage,
+    EndOfBetsMessage,
+    WinnersRequestMessage,
+    WinnersPendingMessage,
+    WinnersNotificationMessage,
+)
+from common.utils import Bet, store_bets, load_bets, has_won
 from abc import ABC, abstractmethod
 from typing import Optional
+import os
 import logging
 
 ########################################################
@@ -21,6 +31,10 @@ class Service(ABC):
 
 
 class BetService(Service):
+    winners_per_agency: dict[str, int] = {}
+    agencies_proccesed: set = set()
+    total_agencies: int = int(os.environ.get("TOTAL_AGENCIES"))
+
     def handle_message(self, message_encoded: bytes) -> Optional[bytes]:
         response: Message | None = None
 
@@ -28,6 +42,10 @@ class BetService(Service):
             response = self._handle_bet_message(message_encoded)
         elif BetBatchMessage.matches(message_encoded):
             response = self._handle_bet_batch_message(message_encoded)
+        elif EndOfBetsMessage.matches(message_encoded):
+            response = self._handle_end_of_bets_message(message_encoded)
+        elif WinnersRequestMessage.matches(message_encoded):
+            response = self._handle_winners_request_message(message_encoded)
         else:
             raise ValueError("Message type not implemented")
 
@@ -75,14 +93,54 @@ class BetService(Service):
             bets.append(bet)
 
         try:
-            store_bets([bet])
+            store_bets(bets)
             logging.info(
                 f"action: apuesta_recibida | result: success | cantidad: {len(bets)}"
             )
-
             return AckMessage(success=True)
         except Exception as e:
             logging.error(
                 f"action: apuesta_recibida | result: fail | cantidad: {len(bets)}"
             )
             return AckMessage(success=False)
+
+    def _handle_end_of_bets_message(self, message_encoded: bytes) -> None:
+        end_of_bets_message: EndOfBetsMessage = EndOfBetsMessage.deserialize(
+            message_encoded
+        )
+        self.agencies_proccesed.add(end_of_bets_message.agency)
+
+        if len(self.agencies_proccesed) < self.total_agencies:
+            return None
+
+        logging.info(f"action: sorteo | result: in_progress")
+
+        bets: list[Bet] = load_bets()
+
+        for bet in bets:
+            if has_won(bet):
+                self.winners_per_agency[str(bet.agency)] = self.winners_per_agency.get(
+                    str(bet.agency), []
+                ) + [bet]
+
+        logging.info(
+            f"action: sorteo | result: success | winners: {self.winners_per_agency}"
+        )
+
+    def _handle_winners_request_message(self, message_encoded: bytes) -> None:
+        winners_request_message: WinnersRequestMessage = (
+            WinnersRequestMessage.deserialize(message_encoded)
+        )
+
+        if len(self.agencies_proccesed) < self.total_agencies:
+            return WinnersPendingMessage()
+
+        return WinnersNotificationMessage(
+            count=len(self.winners_per_agency.get(winners_request_message.agency, [])),
+            documents=[
+                winner.document
+                for winner in self.winners_per_agency.get(
+                    winners_request_message.agency, []
+                )
+            ],
+        )
