@@ -2,8 +2,6 @@ package common
 
 import (
 	"bufio"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -87,59 +85,20 @@ func (c *Client) createClientSocket() error {
 }
 
 // ===================================================
-// Writer/Reader helpers
+// CSV
 // ===================================================
 
-func writeU32(w io.Writer, n uint32) error {
-	var b [4]byte
-	binary.BigEndian.PutUint32(b[:], n)
-	_, err := w.Write(b[:])
-	return err
-}
-
-func readU32(r io.Reader) (uint32, error) {
-	var n uint32
-	err := binary.Read(r, binary.BigEndian, &n)
-	return n, err
-}
-
-func writeAll(w io.Writer, p []byte) error {
-	for len(p) > 0 {
-		n, err := w.Write(p)
-		if err != nil {
-			return err
-		}
-		p = p[n:]
-	}
-	return nil
-}
-
-func readExact(r io.Reader, n int) ([]byte, error) {
-	buf := make([]byte, n)
-	_, err := io.ReadFull(r, buf)
-	return buf, err
-}
-
-func sendFramed(conn net.Conn, payload []byte) error {
-	if err := writeU32(conn, uint32(len(payload))); err != nil {
-		return err
-	}
-	return writeAll(conn, payload)
-}
-
-func recvFramed(conn net.Conn) ([]byte, error) {
-	n, err := readU32(conn)
+func (c *Client) openCSV(path string) (*os.File, *bufio.Scanner, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if n == 0 {
-		return nil, errors.New("empty payload")
-	}
-	return readExact(conn, int(n))
+	sc := bufio.NewScanner(f)
+	return f, sc, nil
 }
 
 // ===================================================
-// Messages
+// Fase 1: Enviar batches de apuestas
 // ===================================================
 
 func (c *Client) ReadBetBatch(sc *bufio.Scanner, n int) (*BetBatchMessage, error) {
@@ -161,7 +120,6 @@ func (c *Client) ReadBetBatch(sc *bufio.Scanner, n int) (*BetBatchMessage, error
 		return nil, err
 	}
 
-	// Si no leíste nada → EOF
 	if len(bets) == 0 {
 		return nil, io.EOF
 	}
@@ -206,98 +164,120 @@ func (c *Client) sendBetBatchAndGetResponse(sc *bufio.Scanner, n int) (*AckMessa
 	return ack, nil
 }
 
-// ===================================================
-// Main loop
-// ===================================================
-
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() error {
-	c.handleSigterm()
-
-	// Abrir archivo CSV
-	csvFile, err := os.Open("/bets.csv")
-	if err != nil {
-		return err
-	}
-	defer csvFile.Close()
-	sc := bufio.NewScanner(csvFile)
-
-	// Abrir conexion
-	if err := c.createClientSocket(); err != nil {
-		return err
-	}
-
+func (c *Client) sendBetsPhase(sc *bufio.Scanner) error {
 	for c.active {
-
 		ack, err := c.sendBetBatchAndGetResponse(sc, c.config.BatchMaxAmount)
-
-		if err == io.EOF { // Se termino de enviar todo el archivo
+		if err == io.EOF {
 			break
 		}
-
 		if err != nil || !ack.Success {
 			log.Errorf("action: apuesta_enviada | result: fail")
 			_ = c.conn.Close()
 			return err
 		}
-
 		time.Sleep(c.config.LoopPeriod)
 	}
-
 	log.Infof("action: apuesta_enviada | result: success")
+	return nil
+}
 
-	endOfBetsMessage := EndOfBetsMessage{Agency: c.config.ID}
-	endOfBetsMessageSerialized := endOfBetsMessage.Serialize()
+// ===================================================
+// Fase 2: Notificar fin de apuestas y cerrar socket
+// ===================================================
 
-	if err := sendFramed(c.conn, []byte(endOfBetsMessageSerialized)); err != nil {
+func (c *Client) sendEndOfBetsAndClose() error {
+	msg := EndOfBetsMessage{Agency: c.config.ID}
+	wire := msg.Serialize()
+	if err := sendFramed(c.conn, []byte(wire)); err != nil {
 		_ = c.conn.Close()
 		return err
 	}
+	return c.conn.Close()
+}
 
-	_ = c.conn.Close()
+// ===================================================
+// Fase 3: Consulta de ganadores
+// ===================================================
 
-	const pollDelay = 200 * time.Millisecond
+func (c *Client) winnersRequestOnce() (pending bool, notif *WinnersNotificationMessage, err error) {
+	if err := c.createClientSocket(); err != nil {
+		return false, nil, err
+	}
+	defer c.conn.Close()
 
+	req := WinnersRequestMessage{Agency: c.config.ID}
+	if err := sendFramed(c.conn, []byte(req.Serialize())); err != nil {
+		return false, nil, err
+	}
+
+	respBytes, err := recvFramed(c.conn)
+	if err != nil {
+		return false, nil, err
+	}
+	resp := string(respBytes)
+
+	if MatchesWinnersPendingMessage(resp) {
+		return true, nil, nil
+	}
+	if MatchesWinnersNotificationMessage(resp) {
+		n, derr := DeserializeWinnersNotificationMessage(resp)
+		if derr != nil {
+			return false, nil, derr
+		}
+		return false, n, nil
+	}
+	return false, nil, fmt.Errorf("unexpected response to WinnersRequest: %q", resp)
+}
+
+func (c *Client) pollWinnersUntilReady(pollDelay time.Duration) (*WinnersNotificationMessage, error) {
 	for c.active {
-		if err := c.createClientSocket(); err != nil {
-			return err
-		}
-
-		winnersRequestMessage := WinnersRequestMessage{Agency: c.config.ID}
-		winnersRequestMessageSerialized := winnersRequestMessage.Serialize()
-		if err := sendFramed(c.conn, []byte(winnersRequestMessageSerialized)); err != nil {
-			_ = c.conn.Close()
-			return err
-		}
-
-		respBytes, err := recvFramed(c.conn)
+		pending, notif, err := c.winnersRequestOnce()
 		if err != nil {
-			_ = c.conn.Close()
-			return err
+			return nil, err
 		}
-		resp := string(respBytes)
-
-		if MatchesWinnersPendingMessage(resp) {
-			_ = c.conn.Close()
+		if pending {
 			time.Sleep(pollDelay)
 			continue
 		}
+		return notif, nil
+	}
+	return nil, fmt.Errorf("client deactivated")
+}
 
-		if MatchesWinnersNotificationMessage(resp) {
-			notif, err := DeserializeWinnersNotificationMessage(resp)
-			_ = c.conn.Close()
-			if err != nil {
-				return err
-			}
-			log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d",
-				notif.Count)
-			break
-		}
+// ===================================================
+// Main Loop
+// ===================================================
 
-		_ = c.conn.Close()
-		return fmt.Errorf("unexpected response to WinnersRequest: %q", resp)
+func (c *Client) StartClientLoop() error {
+	c.handleSigterm()
+
+	// 1) Abrir CSV
+	csvFile, sc, err := c.openCSV("/bets.csv")
+	if err != nil {
+		return err
+	}
+	defer csvFile.Close()
+
+	// 2) Abrir conexion y enviar batches
+	if err := c.createClientSocket(); err != nil {
+		return err
+	}
+	if err := c.sendBetsPhase(sc); err != nil {
+		return err
 	}
 
-	log.Infof("action: proceso_finalizado | result: success | client_id: %v", c.config.ID)
+	// 3) Enviar EndOfBets y cerrar socket
+	if err := c.sendEndOfBetsAndClose(); err != nil {
+		return err
+	}
+
+	// 4) Polling de winners
+	const pollDelay = 200 * time.Millisecond
+	notif, err := c.pollWinnersUntilReady(pollDelay)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", notif.Count)
 	return nil
 }
