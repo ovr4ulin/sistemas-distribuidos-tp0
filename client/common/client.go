@@ -101,7 +101,7 @@ func (c *Client) openCSV(path string) (*os.File, *bufio.Scanner, error) {
 // Fase 1: Enviar batches de apuestas
 // ===================================================
 
-func (c *Client) ReadBetBatch(sc *bufio.Scanner, n int) (*BetBatchMessage, error) {
+func (c *Client) BuildBetBatchFromCSV(sc *bufio.Scanner, n int) (*BetBatchMessage, error) {
 	bets := make([]BetMessage, 0, n)
 
 	for i := 0; i < n && sc.Scan(); i++ {
@@ -129,7 +129,7 @@ func (c *Client) ReadBetBatch(sc *bufio.Scanner, n int) (*BetBatchMessage, error
 
 func (c *Client) sendBetBatchAndGetResponse(sc *bufio.Scanner, n int) (*AckMessage, error) {
 	// Leer N líneas
-	BetBatchMessage, err := c.ReadBetBatch(sc, n)
+	BetBatchMessage, err := c.BuildBetBatchFromCSV(sc, n)
 	if err != nil {
 		if err == io.EOF {
 			return nil, io.EOF
@@ -187,8 +187,8 @@ func (c *Client) sendBetsPhase(sc *bufio.Scanner) error {
 
 func (c *Client) sendEndOfBetsAndClose() error {
 	msg := EndOfBetsMessage{Agency: c.config.ID}
-	wire := msg.Serialize()
-	if err := sendFramed(c.conn, []byte(wire)); err != nil {
+	msgSerialized := msg.Serialize()
+	if err := sendFramed(c.conn, []byte(msgSerialized)); err != nil {
 		_ = c.conn.Close()
 		return err
 	}
@@ -205,33 +205,33 @@ func (c *Client) winnersRequestOnce() (pending bool, notif *WinnersNotificationM
 	}
 	defer c.conn.Close()
 
-	req := WinnersRequestMessage{Agency: c.config.ID}
-	if err := sendFramed(c.conn, []byte(req.Serialize())); err != nil {
+	winnerRequestMessage := WinnersRequestMessage{Agency: c.config.ID}
+	if err := sendFramed(c.conn, []byte(winnerRequestMessage.Serialize())); err != nil {
 		return false, nil, err
 	}
 
-	respBytes, err := recvFramed(c.conn)
+	responseEncoded, err := recvFramed(c.conn)
 	if err != nil {
 		return false, nil, err
 	}
-	resp := string(respBytes)
+	response := string(responseEncoded)
 
-	if MatchesWinnersPendingMessage(resp) {
+	if MatchesWinnersPendingMessage(response) {
 		return true, nil, nil
 	}
-	if MatchesWinnersNotificationMessage(resp) {
-		n, derr := DeserializeWinnersNotificationMessage(resp)
+	if MatchesWinnersNotificationMessage(response) {
+		n, derr := DeserializeWinnersNotificationMessage(response)
 		if derr != nil {
 			return false, nil, derr
 		}
 		return false, n, nil
 	}
-	return false, nil, fmt.Errorf("unexpected response to WinnersRequest: %q", resp)
+	return false, nil, fmt.Errorf("unexpected response to WinnersRequest: %q", response)
 }
 
 func (c *Client) pollWinnersUntilReady(pollDelay time.Duration) (*WinnersNotificationMessage, error) {
 	for c.active {
-		pending, notif, err := c.winnersRequestOnce()
+		pending, winnerNotificationMessage, err := c.winnersRequestOnce()
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +239,7 @@ func (c *Client) pollWinnersUntilReady(pollDelay time.Duration) (*WinnersNotific
 			time.Sleep(pollDelay)
 			continue
 		}
-		return notif, nil
+		return winnerNotificationMessage, nil
 	}
 	return nil, fmt.Errorf("client deactivated")
 }
